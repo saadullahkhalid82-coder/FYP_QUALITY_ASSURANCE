@@ -5,8 +5,8 @@ from pathlib import Path
 from fpdf import FPDF
 import shutil
 import time
-
-# Import your modules
+from supabase import create_client
+from dotenv import load_dotenv
 from project_analyzer import find_python_entry_files, extract_zip, generate_ast_tree
 from code_analyzer import CodeAnalyzer
 from context_enricher import gather_enriched_context, generate_tests_with_llm, save_generated_tests
@@ -25,7 +25,322 @@ st.set_page_config(
 )
 
 # ---------------------------
-# Custom CSS Styling
+# 🔑 Load Supabase credentials from .env
+# ---------------------------
+load_dotenv()
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase_client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ---------------------------
+# 🔐 AUTH FUNCTIONS
+# ---------------------------
+from supabase import create_client
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+# ---------------------------
+# 🔐 AUTH FUNCTIONS (FIXED)
+# ---------------------------
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def signup_user(email, password):
+
+    try:
+        # 1️⃣ Create user in Supabase Auth
+        response = supabase.auth.sign_up({
+            "email": email,
+            "password": password
+        })
+
+        if not response or not response.user:
+            return False, "Signup failed"
+
+        user_id = response.user.id
+
+        # 2️⃣ Insert into users table (SAFE)
+        try:
+            supabase.table("users").insert({
+                "id": user_id,
+                "email": email
+            }).execute()
+        except Exception as db_error:
+            return False, f"User created but DB insert failed: {db_error}"
+
+        return True, "Account created successfully!"
+
+    except Exception as e:
+        return False, str(e)
+
+
+def login_user(email, password):
+    try:
+        result = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        # result is a dict
+        if result.session and result.user:
+            st.session_state.user = result.user.email
+            st.session_state.user_id = result.user.id
+            st.session_state.access_token = result.session.access_token
+            return True, result.user
+        else:
+            return False, "Invalid credentials"
+
+    except Exception as e:
+        return False, str(e)
+
+def reset_password(email):
+    try:
+        supabase.auth.reset_password_for_email(email)
+        return True, "Password reset email sent"
+    except Exception as e:
+        return False, str(e)
+
+
+def logout():
+    st.session_state.clear()
+    st.rerun()
+
+def show_auth_page():
+    """Display authentication UI"""
+    # Custom CSS for Auth Page
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+    
+    .auth-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: #0a0a0f;
+        background-image: 
+            radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.1) 0%, transparent 40%),
+            radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.1) 0%, transparent 40%);
+    }
+    
+    .auth-box {
+        background: rgba(17, 24, 39, 0.8);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 24px;
+        padding: 3rem;
+        width: 100%;
+        max-width: 450px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    
+    .auth-title {
+        background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 2.5rem;
+        font-weight: 800;
+        text-align: center;
+        margin-bottom: 0.5rem;
+        font-family: 'Outfit', sans-serif;
+    }
+    
+    .auth-subtitle {
+        text-align: center;
+        color: #94a3b8;
+        font-size: 1rem;
+        margin-bottom: 2rem;
+        font-weight: 300;
+    }
+    
+    .auth-form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .auth-input {
+        background: rgba(15, 23, 42, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: white !important;
+        border-radius: 10px !important;
+        padding: 0.75rem !important;
+    }
+    
+    .auth-input:focus {
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) !important;
+    }
+    
+    .auth-button {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+        border: none !important;
+        color: white !important;
+        border-radius: 12px !important;
+        padding: 0.75rem !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2) !important;
+    }
+    
+    .auth-button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 20px 25px -5px rgba(79, 70, 229, 0.4) !important;
+    }
+    
+    .auth-toggle {
+        text-align: center;
+        margin-top: 2rem;
+        color: #94a3b8;
+        font-size: 0.9rem;
+    }
+    
+    .auth-toggle a {
+        color: #6366f1;
+        text-decoration: none;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    
+    .auth-toggle a:hover {
+        text-decoration: underline;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Check if Supabase is configured
+    if not supabase_client:
+        st.error("❌ Authentication service not configured. Please add SUPABASE_URL and SUPABASE_KEY to your .env file.")
+        st.stop()
+    
+    # Initialize session state for auth tab
+    if "auth_tab" not in st.session_state:
+        st.session_state.auth_tab = "login"
+    
+    # Main container
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    
+    with col2:
+        st.markdown("""
+        <div class="auth-box">
+            <div class="auth-title">🤖 QA AI</div>
+            <div class="auth-subtitle">Intelligent Test Generation Platform</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Tab selection
+        tab1, tab2, tab3 = st.tabs(["🔓 Login", "📝 Sign Up", "🔐 Reset Password"])
+        
+        # LOGIN TAB
+        with tab1:
+            st.markdown('<div class="auth-box" style="margin-top: 2rem;">', unsafe_allow_html=True)
+            st.markdown("### Welcome Back!")
+            
+            email_login = st.text_input(
+                "📧 Email",
+                key="login_email",
+                placeholder="your@email.com"
+            )
+            password_login = st.text_input(
+                "🔑 Password",
+                type="password",
+                key="login_password",
+                placeholder="Enter your password"
+            )
+            
+            col_login1, col_login2 = st.columns(2)
+            
+            with col_login1:
+                if st.button("🔓 Login", use_container_width=True, type="primary"):
+                    if not email_login or not password_login:
+                        st.warning("⚠️ Please enter both email and password")
+                    else:
+                        with st.spinner("Authenticating..."):
+                            success, result = login_user(email_login, password_login)
+                            if success:
+                                st.success(f"✅ Login successful! Welcome back, {result.email}")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Login failed: {result}")
+            
+            with col_login2:
+                if st.button("← Back", use_container_width=True):
+                    pass
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # SIGNUP TAB
+        with tab2:
+            st.markdown('<div class="auth-box" style="margin-top: 2rem;">', unsafe_allow_html=True)
+            st.markdown("### Create Your Account")
+            
+            email_signup = st.text_input(
+                "📧 Email",
+                key="signup_email",
+                placeholder="your@email.com"
+            )
+            password_signup = st.text_input(
+                "🔑 Password",
+                type="password",
+                key="signup_password",
+                placeholder="Create a strong password"
+            )
+            password_confirm = st.text_input(
+                "🔑 Confirm Password",
+                type="password",
+                key="confirm_password",
+                placeholder="Confirm your password"
+            )
+            
+            if st.button("📝 Create Account", use_container_width=True, type="primary"):
+                if not email_signup or not password_signup:
+                    st.warning("⚠️ Please fill in all fields")
+                elif password_signup != password_confirm:
+                    st.error("❌ Passwords do not match")
+                elif len(password_signup) < 6:
+                    st.warning("⚠️ Password must be at least 6 characters")
+                else:
+                    with st.spinner("Creating account..."):
+                        success, message = signup_user(email_signup.strip(), password_signup)
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.info("📧 Please check your email to verify your account before logging in.")
+                        else:
+                            st.error(f"❌ Signup failed: {message}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # RESET PASSWORD TAB
+        with tab3:
+            st.markdown('<div class="auth-box" style="margin-top: 2rem;">', unsafe_allow_html=True)
+            st.markdown("### Reset Your Password")
+            
+            email_reset = st.text_input(
+                "📧 Email",
+                key="reset_email",
+                placeholder="your@email.com"
+            )
+            
+            if st.button("📧 Send Reset Email", use_container_width=True, type="primary"):
+                if not email_reset:
+                    st.warning("⚠️ Please enter your email")
+                else:
+                    with st.spinner("Sending reset email..."):
+                        success, message = reset_password(email_reset)
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.info("📩 Check your email for password reset instructions")
+                        else:
+                            st.error(f"❌ {message}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# ---------------------------
+# Custom CSS Styling (Main App)
 # ---------------------------
 st.markdown("""
 <style>
@@ -246,6 +561,21 @@ h1, h2, h3, h4, h5, h6 {
 """, unsafe_allow_html=True)
 
 # ---------------------------
+# 🔐 Authentication Check
+# ---------------------------
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if not st.session_state.user:
+    show_auth_page()
+    st.stop()
+
+# ---------------------------
+# MAIN APP - Only shown when authenticated
+# ---------------------------
+
+# ---------------------------
 # Header Section
 # ---------------------------
 st.markdown("""
@@ -329,9 +659,24 @@ show_progress_steps(current_step)
 st.markdown('<div style="height: 1px; background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.5), transparent); margin: 2rem 0;"></div>', unsafe_allow_html=True)
 
 # ---------------------------
-# Sidebar - Info & Stats
+# Sidebar - User Info & Stats
 # ---------------------------
 with st.sidebar:
+    st.markdown("### 👤 User Profile")
+    
+    # Display user info
+    st.markdown(f"""
+    <div class="glass-card" style="padding: 1rem;">
+        <strong style="color: #94a3b8;">📧 Email:</strong><br>
+        <span style="color: #e2e8f0; font-weight: 600;">{st.session_state.user}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Logout button
+    if st.button("🚪 Logout", use_container_width=True):
+        logout()
+    
+    st.markdown("---")
     st.markdown("### Project Dashboard")
     
     if st.session_state.folder:
@@ -416,11 +761,11 @@ with st.container():
                 progress_bar.empty()
 
         st.session_state.folder = project_path
-        st.success(f" Project successfully extracted to: `{project_path}`")
+        st.success(f" Project successfully extracted to: {project_path}")
 
         # Ensure package structure
         for sub in ["", "src", "generated_tests"]:
-            init_path = os.path.join(project_path, sub, "__init__.py")
+            init_path = os.path.join(project_path, sub, "_init_.py")
             os.makedirs(os.path.dirname(init_path), exist_ok=True)
             if not os.path.exists(init_path):
                 open(init_path, "w").close()
@@ -449,7 +794,7 @@ with st.container():
 
         if target_file:
             st.session_state.target_file = target_file
-            st.success(f"Target file selected: **{os.path.basename(target_file)}**")
+            st.success(f"Target file selected: *{os.path.basename(target_file)}*")
 
             # AST Generation
             st.markdown("###  Abstract Syntax Tree (AST) Generation")
@@ -591,7 +936,7 @@ if st.session_state.context:
             st.session_state.test_path = test_path
             st.session_state.tests_generated = True
             
-            st.success(f" Tests successfully saved at: `{test_path}`")
+            st.success(f" Tests successfully saved at: {test_path}")
             st.balloons()
     
     st.markdown('</div>', unsafe_allow_html=True)
@@ -719,14 +1064,148 @@ if st.session_state.test_results:
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ---------------------------
-# Footer
-# ---------------------------
-st.markdown('<div style="height: 1px; background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.5), transparent); margin: 2rem 0;"></div>', unsafe_allow_html=True)
+import os
+import streamlit as st
+from dotenv import load_dotenv
+from streamlit_lottie import st_lottie
+import requests
+from openai import OpenAI
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings
+
+# ============================================
+# 🔐 Load API Key
+# ============================================
+load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    st.error("API Key not found in .env file")
+    st.stop()
+
+client = OpenAI(api_key=api_key)
+
+# ============================================
+# 🎨 Page Config
+# ============================================
+st.set_page_config(
+    page_title="RAG QA Chatbot",
+    page_icon="🤖",
+    layout="wide"
+)
+
+# ============================================
+# 🎨 Custom CSS
+# ============================================
 st.markdown("""
-<div style="text-align: center; padding: 2rem; color: white;">
-    <p style="font-size: 0.9rem; opacity: 0.8;">
-        Made with ❤️ using Streamlit | Powered by AI | © 2024
-    </p>
-</div>
+<style>
+.chat-title { font-size: 36px; font-weight: bold; color: #4B4BFF; }
+.sidebar-title { font-size: 20px; font-weight: bold; color: #FF5733; }
+
+.user-msg { 
+    background-color: #E1F5FE; 
+    color: #000000;          
+    padding: 10px; 
+    border-radius: 10px; 
+    margin-bottom: 5px; 
+}
+
+.assistant-msg { 
+    background-color: #FFF9C4; 
+    color: #000000;          
+    padding: 10px; 
+    border-radius: 10px; 
+    margin-bottom: 5px; 
+}
+
+.typing { font-style: italic; color: gray; }
+</style>
 """, unsafe_allow_html=True)
+
+# ============================================
+# 🤖 Lottie Animation
+# ============================================
+def load_lottie_url(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_robot = load_lottie_url("https://assets2.lottiefiles.com/packages/lf20_kyu7xb1v.json")
+
+# ============================================
+# 🧠 Header
+# ============================================
+col1, col2 = st.columns([1, 3])
+with col1: st_lottie(lottie_robot, height=200)
+with col2:
+    st.markdown('<p class="chat-title">RAG AI Assistant</p>', unsafe_allow_html=True)
+    st.markdown("Ask questions based on your documents and get accurate answers!")
+
+# ============================================
+# 💬 Chat Memory
+# ============================================
+if "messages" not in st.session_state: 
+    st.session_state.messages = []
+
+for msg in st.session_state.messages:
+    role_class = "user-msg" if msg["role"] == "user" else "assistant-msg"
+    with st.chat_message(msg["role"]):
+        st.markdown(f'<div class="{role_class}">{msg["content"]}</div>', unsafe_allow_html=True)
+
+# ============================================
+# 📚 Load or create vector store (RAG)
+# ============================================
+if "vectorstore" not in st.session_state:
+    # Example: Load PDF documents
+    pdf_loader = PyPDFLoader("rag.pdf")  # replace with your file
+    documents = pdf_loader.load()
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    chunks = text_splitter.split_documents(documents)
+    
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+    vectorstore = FAISS.from_documents(chunks, embeddings)
+    st.session_state.vectorstore = vectorstore
+else:
+    vectorstore = st.session_state.vectorstore
+
+# ============================================
+# 💬 Chat Input
+# ============================================
+prompt = st.chat_input("Ask your question...")
+
+if prompt:
+    # Show user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(f'<div class="user-msg">{prompt}</div>', unsafe_allow_html=True)
+
+    # 1️⃣ Retrieve relevant documents
+    docs = vectorstore.similarity_search(prompt, k=3)
+    context = "\n\n".join([doc.page_content for doc in docs])
+
+    # 2️⃣ Prepare RAG prompt for GPT
+    messages = [
+        {"role": "system", "content": "You are a helpful AI assistant. Use the provided context to answer questions clearly."},
+        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {prompt}"}
+    ]
+
+    # 3️⃣ Generate answer using GPT
+    stream = client.chat.completions.create(
+        model="gpt-5-nano",
+        messages=messages,
+        stream=True
+    )
+
+    # 4️⃣ Stream response in chat
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        full_response = ""
+        for chunk in stream:
+            if chunk.choices[0].delta.content:
+                full_response += chunk.choices[0].delta.content
+                message_placeholder.markdown(f'<div class="assistant-msg">{full_response}▌</div>', unsafe_allow_html=True)
+        message_placeholder.markdown(f'<div class="assistant-msg">{full_response}</div>', unsafe_allow_html=True)
+
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
